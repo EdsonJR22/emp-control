@@ -196,6 +196,56 @@ export const commitmentReinforcementItems = sqliteTable(
   ],
 );
 
+export const commitmentAnnulments = sqliteTable(
+  "commitment_annulments",
+  {
+    id: text("id").primaryKey(),
+    commitmentId: text("commitment_id")
+      .notNull()
+      .references(() => commitments.id, { onDelete: "cascade" }),
+    type: text("type", { enum: ["parcial", "total"] }).notNull(),
+    reference: text("reference").notNull(),
+    annulmentDate: text("annulment_date").notNull(),
+    notes: text("notes").notNull().default(""),
+    calculatedTotalCents: integer("calculated_total_cents").notNull(),
+    totalCents: integer("total_cents").notNull(),
+    createdAt: text("created_at").notNull(),
+    createdBy: text("created_by").notNull().default(""),
+  },
+  (table) => [
+    index("commitment_annulments_commitment_idx").on(table.commitmentId),
+    index("commitment_annulments_date_idx").on(table.annulmentDate),
+  ],
+);
+
+export const commitmentAnnulmentItems = sqliteTable(
+  "commitment_annulment_items",
+  {
+    id: text("id").primaryKey(),
+    annulmentId: text("annulment_id")
+      .notNull()
+      .references(() => commitmentAnnulments.id, { onDelete: "cascade" }),
+    commitmentItemId: text("commitment_item_id")
+      .notNull()
+      .references(() => commitmentItems.id, { onDelete: "cascade" }),
+    annulledQuantity: real("annulled_quantity").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    annulledTotalCents: integer("annulled_total_cents").notNull(),
+  },
+  (table) => [
+    uniqueIndex("commitment_annulment_items_line_unique").on(
+      table.annulmentId,
+      table.commitmentItemId,
+    ),
+    index("commitment_annulment_items_annulment_idx").on(
+      table.annulmentId,
+    ),
+    index("commitment_annulment_items_commitment_item_idx").on(
+      table.commitmentItemId,
+    ),
+  ],
+);
+
 export const appMeta = sqliteTable("app_meta", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

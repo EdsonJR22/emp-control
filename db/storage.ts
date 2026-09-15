@@ -1,9 +1,11 @@
 import { env } from "cloudflare:workers";
 import seedData from "./seed-data.json";
 import type {
+  AnnulmentItemDetail,
   ArchivedCommitmentsData,
   CommitmentDetail,
   CommitmentStatus,
+  CreateAnnulmentPayload,
   CreateCommitmentPayload,
   CreateInvoicePayload,
   CreateOrderPayload,
@@ -161,6 +163,27 @@ async function initializeDatabase() {
       added_total_cents INTEGER NOT NULL,
       UNIQUE(reinforcement_id, commitment_item_id)
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS commitment_annulments (
+      id TEXT PRIMARY KEY NOT NULL,
+      commitment_id TEXT NOT NULL REFERENCES commitments(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      annulment_date TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      calculated_total_cents INTEGER NOT NULL,
+      total_cents INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT ''
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS commitment_annulment_items (
+      id TEXT PRIMARY KEY NOT NULL,
+      annulment_id TEXT NOT NULL REFERENCES commitment_annulments(id) ON DELETE CASCADE,
+      commitment_item_id TEXT NOT NULL REFERENCES commitment_items(id) ON DELETE CASCADE,
+      annulled_quantity REAL NOT NULL,
+      unit_price_cents INTEGER NOT NULL,
+      annulled_total_cents INTEGER NOT NULL,
+      UNIQUE(annulment_id, commitment_item_id)
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT NOT NULL
@@ -200,6 +223,18 @@ async function initializeDatabase() {
     ),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS commitment_reinforcement_items_commitment_item_idx ON commitment_reinforcement_items(commitment_item_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS commitment_annulments_commitment_idx ON commitment_annulments(commitment_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS commitment_annulments_date_idx ON commitment_annulments(annulment_date)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS commitment_annulment_items_annulment_idx ON commitment_annulment_items(annulment_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS commitment_annulment_items_commitment_item_idx ON commitment_annulment_items(commitment_item_id)",
     ),
   ]);
 
@@ -517,6 +552,8 @@ export async function getCommitmentDetail(
     orderResult,
     reinforcementResult,
     reinforcementItemResult,
+    annulmentResult,
+    annulmentItemResult,
   ] = await Promise.all([
     db
       .prepare(`SELECT
@@ -603,6 +640,41 @@ export async function getCommitmentDetail(
       ORDER BY r.reinforcement_date DESC, r.created_at DESC, ci.line_number ASC`)
       .bind(id)
       .all<DataRow>(),
+    db
+      .prepare(`SELECT
+        a.id,
+        a.type,
+        a.reference,
+        a.annulment_date,
+        a.notes,
+        a.calculated_total_cents,
+        a.total_cents,
+        a.created_by,
+        COUNT(ai.id) AS item_count
+      FROM commitment_annulments a
+      LEFT JOIN commitment_annulment_items ai ON ai.annulment_id = a.id
+      WHERE a.commitment_id = ?
+      GROUP BY a.id
+      ORDER BY a.annulment_date DESC, a.created_at DESC`)
+      .bind(id)
+      .all<DataRow>(),
+    db
+      .prepare(`SELECT
+        ai.annulment_id,
+        ai.commitment_item_id,
+        ci.line_number,
+        ci.description,
+        ci.unit,
+        ai.annulled_quantity,
+        ai.unit_price_cents,
+        ai.annulled_total_cents
+      FROM commitment_annulment_items ai
+      JOIN commitment_annulments a ON a.id = ai.annulment_id
+      JOIN commitment_items ci ON ci.id = ai.commitment_item_id
+      WHERE a.commitment_id = ?
+      ORDER BY a.annulment_date DESC, a.created_at DESC, ci.line_number ASC`)
+      .bind(id)
+      .all<DataRow>(),
   ]);
 
   const items = itemResult.results.map((row) => {
@@ -645,6 +717,21 @@ export async function getCommitmentDetail(
     });
     reinforcementItemsById.set(reinforcementId, reinforcementItems);
   }
+  const annulmentItemsById = new Map<string, AnnulmentItemDetail[]>();
+  for (const row of annulmentItemResult.results) {
+    const annulmentId = String(row.annulment_id);
+    const annulmentItems = annulmentItemsById.get(annulmentId) ?? [];
+    annulmentItems.push({
+      commitmentItemId: String(row.commitment_item_id),
+      lineNumber: asNumber(row.line_number),
+      description: String(row.description),
+      unit: String(row.unit),
+      annulledQuantity: asNumber(row.annulled_quantity),
+      unitPriceCents: asNumber(row.unit_price_cents),
+      annulledTotalCents: asNumber(row.annulled_total_cents),
+    });
+    annulmentItemsById.set(annulmentId, annulmentItems);
+  }
 
   return {
     id: String(commitment.id),
@@ -662,6 +749,11 @@ export async function getCommitmentDetail(
     archivedAt: commitment.archived_at ? String(commitment.archived_at) : null,
     reinforcementCount: reinforcementResult.results.length,
     reinforcementTotalCents: reinforcementResult.results.reduce(
+      (sum, row) => sum + asNumber(row.total_cents),
+      0,
+    ),
+    annulmentCount: annulmentResult.results.length,
+    annulmentTotalCents: annulmentResult.results.reduce(
       (sum, row) => sum + asNumber(row.total_cents),
       0,
     ),
@@ -712,11 +804,32 @@ export async function getCommitmentDetail(
       createdBy: String(row.created_by ?? ""),
       items: reinforcementItemsById.get(String(row.id)) ?? [],
     })),
+    annulments: annulmentResult.results.map((row) => {
+      const calculatedTotalCents = asNumber(row.calculated_total_cents);
+      const totalCents = asNumber(row.total_cents);
+      return {
+        id: String(row.id),
+        type: String(row.type) as "parcial" | "total",
+        reference: String(row.reference),
+        annulmentDate: String(row.annulment_date),
+        notes: String(row.notes ?? ""),
+        calculatedTotalCents,
+        totalCents,
+        hasValueAdjustment: calculatedTotalCents !== totalCents,
+        itemCount: asNumber(row.item_count),
+        createdBy: String(row.created_by ?? ""),
+        items: annulmentItemsById.get(String(row.id)) ?? [],
+      };
+    }),
   };
 }
 
-function validateIsoDate(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+function validateIsoDate(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 type TransactionItem = {
@@ -1001,6 +1114,7 @@ export async function createOrder(
   const commitment = await db
     .prepare(`SELECT
       c.id,
+      c.status,
       c.total_cents,
       ca.commitment_id AS archived_id,
       COALESCE(SUM(COALESCE(i.total_cents, o.total_cents)), 0) AS ordered_cents
@@ -1020,6 +1134,13 @@ export async function createOrder(
       "Desarquive a NE antes de registrar novos pedidos.",
       409,
       "ARCHIVED_COMMITMENT",
+    );
+  }
+  if (commitment.status === "encerrada") {
+    throw new DomainError(
+      "Esta NE está encerrada. Registre um reforço antes de criar novos pedidos.",
+      409,
+      "COMMITMENT_CLOSED",
     );
   }
 
@@ -1070,6 +1191,8 @@ export async function createOrder(
         WHERE NOT EXISTS (
           SELECT 1 FROM commitment_archives WHERE commitment_id = ?
         ) AND (
+          SELECT status FROM commitments WHERE id = ?
+        ) <> 'encerrada' AND (
           SELECT COALESCE(SUM(COALESCE(i.total_cents, o.total_cents)), 0) + ?
           FROM orders o
           LEFT JOIN invoices i ON i.order_id = o.id
@@ -1087,6 +1210,7 @@ export async function createOrder(
         totalCents,
         createdAt,
         createdBy,
+        commitmentId,
         commitmentId,
         totalCents,
         commitmentId,
@@ -1553,6 +1677,356 @@ export async function createReinforcement(
   ]);
 
   return { id: reinforcementId, reference, totalCents };
+}
+
+type AnnulmentItemSnapshot = {
+  commitmentItemId: string;
+  lineNumber: number;
+  description: string;
+  contractedQuantity: number;
+  orderedQuantity: number;
+  unitPriceCents: number;
+};
+
+type PlannedAnnulmentItem = AnnulmentItemSnapshot & {
+  annulledQuantity: number;
+  annulledTotalCents: number;
+};
+
+const QUANTITY_EPSILON = 0.000001;
+
+export async function createAnnulment(
+  commitmentId: string,
+  payload: CreateAnnulmentPayload,
+  createdBy: string,
+) {
+  await ensureDatabase();
+  const db = getD1();
+  if (!payload || typeof payload !== "object") {
+    throw new DomainError("Informe os dados da anulação.");
+  }
+  if (payload.type !== "parcial" && payload.type !== "total") {
+    throw new DomainError("Escolha entre anulação parcial ou total.");
+  }
+  if (!validateIsoDate(payload.annulmentDate)) {
+    throw new DomainError("Informe uma data válida para a anulação.");
+  }
+
+  const commitment = await db
+    .prepare(`SELECT
+      c.id,
+      c.total_cents,
+      ca.commitment_id AS archived_id,
+      COALESCE(SUM(COALESCE(i.total_cents, o.total_cents)), 0) AS ordered_cents
+    FROM commitments c
+    LEFT JOIN commitment_archives ca ON ca.commitment_id = c.id
+    LEFT JOIN orders o ON o.commitment_id = c.id
+    LEFT JOIN invoices i ON i.order_id = o.id
+    WHERE c.id = ?
+    GROUP BY c.id, ca.commitment_id`)
+    .bind(commitmentId)
+    .first<DataRow>();
+  if (!commitment) {
+    throw new DomainError("NE não encontrada.", 404, "NOT_FOUND");
+  }
+  if (commitment.archived_id) {
+    throw new DomainError(
+      "Desarquive a NE antes de registrar uma anulação.",
+      409,
+      "ARCHIVED_COMMITMENT",
+    );
+  }
+
+  const itemResult = await db
+    .prepare(`SELECT
+      ci.id,
+      ci.line_number,
+      ci.description,
+      ci.contracted_quantity,
+      ci.unit_price_cents,
+      COALESCE(usage.ordered_quantity, 0) AS ordered_quantity
+    FROM commitment_items ci
+    LEFT JOIN (
+      SELECT effective.commitment_item_id, SUM(effective.quantity) AS ordered_quantity
+      FROM (
+        SELECT oi.commitment_item_id, oi.quantity
+        FROM order_items oi
+        LEFT JOIN invoices i ON i.order_id = oi.order_id
+        WHERE i.id IS NULL
+        UNION ALL
+        SELECT ii.commitment_item_id, ii.quantity
+        FROM invoice_items ii
+      ) effective
+      GROUP BY effective.commitment_item_id
+    ) usage ON usage.commitment_item_id = ci.id
+    WHERE ci.commitment_id = ?
+    ORDER BY ci.line_number ASC`)
+    .bind(commitmentId)
+    .all<DataRow>();
+  const snapshots: AnnulmentItemSnapshot[] = itemResult.results.map((row) => ({
+    commitmentItemId: String(row.id),
+    lineNumber: asNumber(row.line_number),
+    description: String(row.description),
+    contractedQuantity: asNumber(row.contracted_quantity),
+    orderedQuantity: asNumber(row.ordered_quantity),
+    unitPriceCents: asNumber(row.unit_price_cents),
+  }));
+  const snapshotsById = new Map(
+    snapshots.map((item) => [item.commitmentItemId, item]),
+  );
+
+  let items: PlannedAnnulmentItem[];
+  if (payload.type === "total") {
+    items = snapshots
+      .map((item) => ({
+        ...item,
+        annulledQuantity: item.contractedQuantity - item.orderedQuantity,
+      }))
+      .filter((item) => item.annulledQuantity > QUANTITY_EPSILON)
+      .map((item) => ({
+        ...item,
+        annulledTotalCents: Math.round(
+          item.annulledQuantity * item.unitPriceCents,
+        ),
+      }));
+  } else {
+    if (!Array.isArray(payload.items) || payload.items.length === 0) {
+      throw new DomainError("Informe a quantidade a anular de pelo menos um item.");
+    }
+    const seenItems = new Set<string>();
+    items = payload.items.map((candidate) => {
+      if (!candidate || typeof candidate !== "object") {
+        throw new DomainError("Há um item inválido na anulação.");
+      }
+      const itemId = String(candidate.commitmentItemId ?? "");
+      const snapshot = snapshotsById.get(itemId);
+      if (!snapshot) {
+        throw new DomainError("Um dos itens não pertence a esta NE.");
+      }
+      if (seenItems.has(itemId)) {
+        throw new DomainError(`O item ${snapshot.lineNumber} foi informado mais de uma vez.`);
+      }
+      seenItems.add(itemId);
+
+      const annulledQuantity = typeof candidate.annulledQuantity === "number"
+        ? candidate.annulledQuantity
+        : Number.NaN;
+      if (!Number.isFinite(annulledQuantity) || annulledQuantity <= 0) {
+        throw new DomainError(
+          `A quantidade a anular do item ${snapshot.lineNumber} deve ser maior que zero.`,
+        );
+      }
+      if (
+        Math.abs(
+          annulledQuantity * 1000 - Math.round(annulledQuantity * 1000),
+        ) > QUANTITY_EPSILON
+      ) {
+        throw new DomainError(
+          `Use no máximo três casas decimais na quantidade do item ${snapshot.lineNumber}.`,
+        );
+      }
+      const availableQuantity =
+        snapshot.contractedQuantity - snapshot.orderedQuantity;
+      if (availableQuantity <= QUANTITY_EPSILON) {
+        throw new DomainError(
+          `O item ${snapshot.lineNumber} não possui saldo disponível para anulação.`,
+          409,
+          "ITEM_WITHOUT_BALANCE",
+        );
+      }
+      if (annulledQuantity > availableQuantity + QUANTITY_EPSILON) {
+        throw new DomainError(
+          `A quantidade a anular do item ${snapshot.lineNumber} ultrapassa o saldo disponível.`,
+          409,
+          "ANNULMENT_QUANTITY_EXCEEDED",
+          { availableQuantity, item: snapshot.description },
+        );
+      }
+      const safeQuantity = Math.min(annulledQuantity, availableQuantity);
+      return {
+        ...snapshot,
+        annulledQuantity: safeQuantity,
+        annulledTotalCents: Math.round(safeQuantity * snapshot.unitPriceCents),
+      };
+    });
+  }
+
+  const currentTotalCents = asNumber(commitment.total_cents);
+  const orderedCents = asNumber(commitment.ordered_cents);
+  const financialBalanceCents = currentTotalCents - orderedCents;
+  if (financialBalanceCents < 0) {
+    throw new DomainError(
+      "A NE está com saldo financeiro negativo. Revise os pedidos e notas fiscais antes de anulá-la.",
+      409,
+      "NEGATIVE_COMMITMENT_BALANCE",
+    );
+  }
+  const calculatedTotalCents = items.reduce(
+    (sum, item) => sum + item.annulledTotalCents,
+    0,
+  );
+  const totalCents = payload.type === "total"
+    ? financialBalanceCents
+    : calculatedTotalCents;
+  if (payload.type === "parcial" && totalCents > financialBalanceCents) {
+    throw new DomainError(
+      "Esta anulação ultrapassa o saldo financeiro disponível da NE.",
+      409,
+      "ANNULMENT_VALUE_EXCEEDED",
+      { remainingCents: financialBalanceCents },
+    );
+  }
+  if (items.length === 0 && totalCents === 0) {
+    throw new DomainError(
+      "Esta NE não possui saldo disponível para anulação.",
+      409,
+      "COMMITMENT_WITHOUT_BALANCE",
+    );
+  }
+
+  const annulmentId = crypto.randomUUID();
+  const reference = String(payload.reference ?? "").trim() ||
+    `Anulação ${payload.annulmentDate}`;
+  const notes = String(payload.notes ?? "").trim();
+  const createdAt = new Date().toISOString();
+  const snapshotsToGuard = payload.type === "total" ? snapshots : items;
+  const guardSnapshotJson = JSON.stringify(
+    snapshotsToGuard.map((item) => ({
+      id: item.commitmentItemId,
+      contractedQuantity: item.contractedQuantity,
+      orderedQuantity: item.orderedQuantity,
+    })),
+  );
+
+  const insertAnnulment = db
+    .prepare(`INSERT INTO commitment_annulments
+      (id, commitment_id, type, reference, annulment_date, notes,
+       calculated_total_cents, total_cents, created_at, created_by)
+      SELECT ?, c.id, ?, ?, ?, ?, ?, ?, ?, ?
+      FROM commitments c
+      WHERE c.id = ?
+        AND c.total_cents = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM commitment_archives WHERE commitment_id = c.id
+        )
+        AND (
+          SELECT COALESCE(SUM(COALESCE(i.total_cents, o.total_cents)), 0)
+          FROM orders o
+          LEFT JOIN invoices i ON i.order_id = o.id
+          WHERE o.commitment_id = c.id
+        ) = ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM json_each(?) expected
+          LEFT JOIN commitment_items guard_item
+            ON guard_item.id = json_extract(expected.value, '$.id')
+            AND guard_item.commitment_id = c.id
+          WHERE guard_item.id IS NULL
+            OR ABS(
+              guard_item.contracted_quantity -
+              CAST(json_extract(expected.value, '$.contractedQuantity') AS REAL)
+            ) > ${QUANTITY_EPSILON}
+            OR ABS(COALESCE((
+            SELECT SUM(effective.quantity)
+            FROM (
+              SELECT oi.quantity
+              FROM order_items oi
+              LEFT JOIN invoices invoice_for_order ON invoice_for_order.order_id = oi.order_id
+              WHERE oi.commitment_item_id = guard_item.id
+                AND invoice_for_order.id IS NULL
+              UNION ALL
+              SELECT ii.quantity
+              FROM invoice_items ii
+              WHERE ii.commitment_item_id = guard_item.id
+            ) effective
+          ), 0) - CAST(
+            json_extract(expected.value, '$.orderedQuantity') AS REAL
+          )) > ${QUANTITY_EPSILON}
+        )`)
+    .bind(
+      annulmentId,
+      payload.type,
+      reference,
+      payload.annulmentDate,
+      notes,
+      calculatedTotalCents,
+      totalCents,
+      createdAt,
+      createdBy,
+      commitmentId,
+      currentTotalCents,
+      orderedCents,
+      guardSnapshotJson,
+    );
+
+  const selectedQuantities = new Map(
+    items.map((item) => [item.commitmentItemId, item.annulledQuantity]),
+  );
+  const hasRemainingItemBalance = snapshots.some((item) =>
+    item.contractedQuantity - item.orderedQuantity -
+      (selectedQuantities.get(item.commitmentItemId) ?? 0) > QUANTITY_EPSILON
+  );
+  const newTotalCents = currentTotalCents - totalCents;
+  const shouldClose = payload.type === "total" ||
+    newTotalCents <= orderedCents || !hasRemainingItemBalance;
+
+  const results = await db.batch([
+    insertAnnulment,
+    ...items.map((item) =>
+      db
+        .prepare(`INSERT INTO commitment_annulment_items
+          (id, annulment_id, commitment_item_id, annulled_quantity, unit_price_cents, annulled_total_cents)
+          SELECT ?, ?, ?, ?, ?, ?
+          WHERE EXISTS (SELECT 1 FROM commitment_annulments WHERE id = ?)`)
+        .bind(
+          crypto.randomUUID(),
+          annulmentId,
+          item.commitmentItemId,
+          item.annulledQuantity,
+          item.unitPriceCents,
+          item.annulledTotalCents,
+          annulmentId,
+        ),
+    ),
+    ...items.map((item) =>
+      db
+        .prepare(`UPDATE commitment_items
+          SET contracted_quantity = ?
+          WHERE id = ? AND commitment_id = ?
+            AND EXISTS (SELECT 1 FROM commitment_annulments WHERE id = ?)`)
+        .bind(
+          item.contractedQuantity - item.annulledQuantity,
+          item.commitmentItemId,
+          commitmentId,
+          annulmentId,
+        ),
+    ),
+    db
+      .prepare(`UPDATE commitments
+        SET total_cents = ?,
+            status = CASE WHEN ? = 1 THEN 'encerrada' ELSE status END
+        WHERE id = ?
+          AND EXISTS (SELECT 1 FROM commitment_annulments WHERE id = ?)`)
+      .bind(newTotalCents, shouldClose ? 1 : 0, commitmentId, annulmentId),
+  ]);
+  const changes = Number(
+    (results[0].meta as { changes?: number } | undefined)?.changes ?? 0,
+  );
+  if (changes === 0) {
+    throw new DomainError(
+      "Os saldos desta NE foram alterados por outra operação. Atualize a tela e revise a anulação.",
+      409,
+      "ANNULMENT_CONFLICT",
+    );
+  }
+
+  return {
+    id: annulmentId,
+    type: payload.type,
+    reference,
+    calculatedTotalCents,
+    totalCents,
+  };
 }
 
 export async function deleteOrder(id: string) {

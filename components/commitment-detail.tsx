@@ -10,9 +10,11 @@ import {
   formatQuantity,
 } from "../lib/format";
 import type { CommitmentDetail } from "../lib/types";
+import { AnnulmentDetailModal } from "./annulment-detail-modal";
 import { Icon } from "./icon";
 import { InvoiceModal } from "./invoice-modal";
 import { NewOrderModal } from "./new-order-modal";
+import { NewAnnulmentModal } from "./new-annulment-modal";
 import { NewReinforcementModal } from "./new-reinforcement-modal";
 import { ReinforcementDetailModal } from "./reinforcement-detail-modal";
 
@@ -30,12 +32,18 @@ export function CommitmentDetailView() {
   const [invoiceOrderId, setInvoiceOrderId] = useState<string | null>(null);
   const [reinforcementOpen, setReinforcementOpen] = useState(false);
   const [selectedReinforcementId, setSelectedReinforcementId] = useState<string | null>(null);
+  const [annulmentOpen, setAnnulmentOpen] = useState(false);
+  const [selectedAnnulmentId, setSelectedAnnulmentId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [archiveChanging, setArchiveChanging] = useState(false);
 
   const selectedReinforcement =
     commitment?.reinforcements.find(
       (reinforcement) => reinforcement.id === selectedReinforcementId,
+    ) ?? null;
+  const selectedAnnulment =
+    commitment?.annulments.find(
+      (annulment) => annulment.id === selectedAnnulmentId,
     ) ?? null;
 
   const load = useCallback(async () => {
@@ -191,9 +199,24 @@ export function CommitmentDetailView() {
             Reforçar empenho
           </button>
           <button
+            className="button button-danger-secondary"
+            type="button"
+            title={commitment.balanceCents < 0 ? "Revise os pedidos e notas fiscais: a NE está com saldo financeiro negativo." : undefined}
+            disabled={
+              commitment.archived ||
+              commitment.balanceCents < 0 ||
+              (commitment.balanceCents <= 0 &&
+                !commitment.items.some((item) => item.balanceQuantity > 0.000001))
+            }
+            onClick={() => setAnnulmentOpen(true)}
+          >
+            <Icon name="minus" />
+            Anular empenho
+          </button>
+          <button
             className="button button-primary"
             type="button"
-            disabled={commitment.balanceCents <= 0 || commitment.archived}
+            disabled={closed || commitment.archived}
             onClick={() => setOrderOpen(true)}
           >
             <Icon name="plus" />
@@ -207,14 +230,14 @@ export function CommitmentDetailView() {
           <Icon name="archive" />
           <div>
             <strong>Esta NE está arquivada</strong>
-            <p>Ela não entra na visão geral nem nas estatísticas. Desarquive para lançar pedidos, NFs ou reforços.</p>
+            <p>Ela não entra na visão geral nem nas estatísticas. Desarquive para lançar pedidos, NFs, reforços ou anulações.</p>
           </div>
         </section>
       )}
 
       <section className="detail-finance-card">
         <div className="finance-kpi">
-          <span>{commitment.reinforcementCount > 0 ? "Valor autorizado" : "Valor da NE"}</span>
+          <span>{commitment.reinforcementCount > 0 || commitment.annulmentCount > 0 ? "Valor autorizado" : "Valor da NE"}</span>
           <strong>{formatCurrency(commitment.totalCents)}</strong>
         </div>
         <div className="finance-kpi">
@@ -449,6 +472,45 @@ export function CommitmentDetailView() {
         </section>
       )}
 
+      {commitment.annulments.length > 0 && (
+        <section className="content-card reinforcement-history-card annulment-history-card">
+          <div className="content-card-header compact-header">
+            <div>
+              <h2>Histórico de anulações</h2>
+              <p>
+                {commitment.annulmentCount} anulação(ões) · {formatCurrency(commitment.annulmentTotalCents)} reduzidos
+              </p>
+            </div>
+          </div>
+          <div className="reinforcement-history-list">
+            {commitment.annulments.map((annulment) => (
+              <button
+                aria-haspopup="dialog"
+                aria-label={`Ver itens da anulação ${annulment.reference}`}
+                className="reinforcement-history-item annulment-history-item"
+                key={annulment.id}
+                type="button"
+                onClick={() => setSelectedAnnulmentId(annulment.id)}
+              >
+                <span className="reinforcement-history-icon annulment-history-icon"><Icon name="minus" /></span>
+                <span className="reinforcement-history-content">
+                  <span className="annulment-history-title">
+                    <strong>{annulment.reference}</strong>
+                    <span className="badge badge-danger">{annulment.type === "total" ? "Total" : "Parcial"}</span>
+                  </span>
+                  <small>{formatDate(annulment.annulmentDate)} · {annulment.itemCount} item(ns)</small>
+                  {annulment.notes && <p>{annulment.notes}</p>}
+                </span>
+                <span className="reinforcement-history-action">
+                  <strong className="reinforcement-history-value annulment-history-value">− {formatCurrency(annulment.totalCents)}</strong>
+                  <Icon name="chevron-right" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <NewOrderModal
         open={orderOpen || Boolean(editingOrderId)}
         commitment={commitment}
@@ -482,10 +544,24 @@ export function CommitmentDetailView() {
           void load();
         }}
       />
+      <NewAnnulmentModal
+        open={annulmentOpen}
+        commitment={commitment}
+        onClose={() => setAnnulmentOpen(false)}
+        onCreated={() => {
+          setAnnulmentOpen(false);
+          void load();
+        }}
+      />
       <ReinforcementDetailModal
         reinforcement={selectedReinforcement}
         commitmentNumber={commitment.number}
         onClose={() => setSelectedReinforcementId(null)}
+      />
+      <AnnulmentDetailModal
+        annulment={selectedAnnulment}
+        commitmentNumber={commitment.number}
+        onClose={() => setSelectedAnnulmentId(null)}
       />
     </div>
   );

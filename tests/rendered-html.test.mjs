@@ -29,5 +29,9 @@ test("build contains the commitment-control experience", async () => {
   assert.match(builtText, /Salvar como PDF/i);
   assert.match(builtText, /Itens reforçados/i);
   assert.match(builtText, /Quantidade reforçada/i);
+  assert.match(builtText, /Anular empenho/i);
+  assert.match(builtText, /Anulação parcial/i);
+  assert.match(builtText, /Anulação total/i);
+  assert.match(builtText, /Histórico de anulações/i);
   assert.doesNotMatch(builtText, /Starter Project/i);
 });

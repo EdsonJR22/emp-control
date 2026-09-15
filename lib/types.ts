@@ -111,6 +111,32 @@ export type ReinforcementItemDetail = {
   addedTotalCents: number;
 };
 
+export type AnnulmentType = "parcial" | "total";
+
+export type AnnulmentSummary = {
+  id: string;
+  type: AnnulmentType;
+  reference: string;
+  annulmentDate: string;
+  notes: string;
+  calculatedTotalCents: number;
+  totalCents: number;
+  hasValueAdjustment: boolean;
+  itemCount: number;
+  createdBy: string;
+  items: AnnulmentItemDetail[];
+};
+
+export type AnnulmentItemDetail = {
+  commitmentItemId: string;
+  lineNumber: number;
+  description: string;
+  unit: string;
+  annulledQuantity: number;
+  unitPriceCents: number;
+  annulledTotalCents: number;
+};
+
 export type CommitmentDetail = {
   id: string;
   number: string;
@@ -125,11 +151,14 @@ export type CommitmentDetail = {
   alertCount: number;
   reinforcementCount: number;
   reinforcementTotalCents: number;
+  annulmentCount: number;
+  annulmentTotalCents: number;
   archived: boolean;
   archivedAt: string | null;
   items: CommitmentItemBalance[];
   orders: OrderSummary[];
   reinforcements: ReinforcementSummary[];
+  annulments: AnnulmentSummary[];
 };
 
 export type CreateCommitmentPayload = {
@@ -181,6 +210,17 @@ export type CreateReinforcementPayload = {
   items: Array<{
     commitmentItemId: string;
     addedQuantity: number;
+  }>;
+};
+
+export type CreateAnnulmentPayload = {
+  type: AnnulmentType;
+  reference?: string;
+  annulmentDate: string;
+  notes?: string;
+  items?: Array<{
+    commitmentItemId: string;
+    annulledQuantity: number;
   }>;
 };
 
