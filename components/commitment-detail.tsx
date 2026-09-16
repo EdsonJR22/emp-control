@@ -367,7 +367,9 @@ export function CommitmentDetailView() {
                         <span className="badge badge-warning">Aguardando NF</span>
                       )}
                     </div>
-                    <p>{formatDate(order.orderDate)} · {order.itemCount} item(ns)</p>
+                    <p>
+                      {formatDate(order.invoice?.invoiceDate ?? order.orderDate)} · {order.invoice?.itemCount ?? order.itemCount} item(ns)
+                    </p>
                   </div>
                   <button
                     className="icon-button danger-hover order-delete"
@@ -379,28 +381,10 @@ export function CommitmentDetailView() {
                     <Icon name="trash" />
                   </button>
                 </div>
-                {order.invoice ? (
-                  <div className="invoice-value-grid">
-                    <div>
-                      <span>Pedido original</span>
-                      <strong>{formatCurrency(order.requestedTotalCents)}</strong>
-                    </div>
-                    <div>
-                      <span>Valor da NF</span>
-                      <strong>{formatCurrency(order.invoice.totalCents)}</strong>
-                      <small>{formatDate(order.invoice.invoiceDate)} · {order.invoice.itemCount} item(ns)</small>
-                    </div>
-                    <div className={order.invoice.totalCents <= order.requestedTotalCents ? "positive" : "negative"}>
-                      <span>Diferença</span>
-                      <strong>{formatCurrency(order.invoice.totalCents - order.requestedTotalCents)}</strong>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="order-card-value">
-                    <span>Valor reservado</span>
-                    <strong>{formatCurrency(order.requestedTotalCents)}</strong>
-                  </div>
-                )}
+                <div className="order-card-value">
+                  <span>{order.invoice ? "Valor da NF" : "Valor reservado"}</span>
+                  <strong>{formatCurrency(order.invoice?.totalCents ?? order.requestedTotalCents)}</strong>
+                </div>
                 {order.hasValueAdjustment && (
                   <div className="value-adjustment">
                     <Icon name="alert" /> Valor informado difere do cálculo de {formatCurrency(order.calculatedTotalCents)}
