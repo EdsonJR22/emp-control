@@ -1,6 +1,6 @@
 # EmpControl — Controle de Empenhos
 
-Aplicação web para controlar notas de empenho (NE), pedidos de hortifruti,
+Aplicação web para controlar notas de empenho (NE), pedidos,
 notas fiscais, reforços de empenho e saldos por item.
 
 ## Funcionalidades

@@ -64,7 +64,7 @@ export function Dashboard() {
       <header className="page-header">
         <div>
           <span className="eyebrow">Controle operacional</span>
-          <h1>Empenhos de hortifruti</h1>
+          <h1>Empenhos</h1>
           <p>Acompanhe o que foi empenhado, pedido e quanto ainda pode ser utilizado.</p>
         </div>
         <button className="button button-primary" type="button" onClick={() => setModalOpen(true)}>

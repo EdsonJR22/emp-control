@@ -21,7 +21,7 @@ test("build contains the commitment-control experience", async () => {
   const distPath = fileURLToPath(new URL("../dist/", import.meta.url));
   const builtText = await readBuiltText(distPath);
   assert.match(builtText, /EmpControl/i);
-  assert.match(builtText, /Empenhos de hortifruti/i);
+  assert.match(builtText, /Empenhos/i);
   assert.match(builtText, /Acessar sistema/i);
   assert.match(builtText, /Projeto desenvolvido e mantido por: 3º SGT MACHADO/i);
   assert.match(builtText, /https:\/\/www\.instagram\.com\/edson_dev_\//i);

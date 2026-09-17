@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     template: "%s · EmpControl",
   },
   description:
-    "Controle de notas de empenho, pedidos, quantidades e saldos de hortifruti.",
+    "Controle de notas de empenho, pedidos, quantidades e saldos.",
   openGraph: {
     type: "website",
     locale: "pt_BR",
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
               url: `${siteUrl}/og.png`,
               width: 1536,
               height: 1024,
-              alt: "Controle de Empenhos Hortifruti",
+              alt: "Controle de Empenhos",
             },
           ],
         }
