@@ -63,7 +63,7 @@ npm test
 npm run db:generate
 ```
 
-## Usar no VS Code com Codex
+## Usar no VS Code com Codex (opcional)
 
 Abra a pasta clonada no VS Code:
 
@@ -147,14 +147,12 @@ gera uma nova implantação.
 ## Segurança
 
 O repositório pode ser público porque não contém o banco D1 nem as credenciais
-de acesso. O usuário, a senha e a chave de sessão ficam armazenados como secrets
-criptografados no Cloudflare.
+de acesso. O usuário, a senha e a chave de sessão ficam armazenados como secrets criptografados no Cloudflare.
+
 Nunca envie `.env`, `.dev.vars`, tokens ou senhas para o GitHub.
 
 O login cria uma sessão assinada de 12 horas em cookie `HttpOnly`, `Secure` em
-produção e `SameSite=Lax`. Todas as páginas e APIs exigem uma sessão válida, e o
-endpoint de login limita cada usuário a 10 tentativas por minuto em cada
-localidade da rede Cloudflare.
+produção e `SameSite=Lax`. Todas as páginas e APIs exigem uma sessão válida, e o endpoint de login limita cada usuário a 10 tentativas por minuto em cada localidade da rede Cloudflare.
 Cloudflare Access ainda pode ser habilitado como uma segunda camada de proteção.
 
 Esta versão usa uma única credencial compartilhada. O logout remove a sessão do
