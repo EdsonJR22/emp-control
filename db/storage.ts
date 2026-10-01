@@ -1,5 +1,11 @@
 import { env } from "cloudflare:workers";
 import seedData from "./seed-data.json";
+import {
+  buildConsumptionReport,
+  consumptionToday,
+  getConsumptionPeriod,
+  type ConsumptionSelection,
+} from "../lib/consumption";
 import type {
   AnnulmentItemDetail,
   ArchivedCommitmentsData,
@@ -994,6 +1000,37 @@ export async function getOrderDetail(id: string): Promise<OrderDetail | null> {
     items: mapOrderItemRows(requestedItems.results),
     invoice,
   };
+}
+
+export async function getConsumptionData(selection: ConsumptionSelection = {}) {
+  await ensureDatabase();
+  const db = getD1();
+  const today = consumptionToday();
+  const first = await db.prepare(
+    "SELECT MIN(invoice_date) AS first_date FROM invoices WHERE invoice_date <= ?",
+  ).bind(today).first<{ first_date: string | null }>();
+  const firstInvoiceDate = first?.first_date ?? null;
+  const period = getConsumptionPeriod(selection, today, firstInvoiceDate);
+  // Archive/status do not erase deliveries. Use invoice quantities, never reservations.
+  const [catalog, entries] = await db.batch<DataRow>([
+    db.prepare(`SELECT id, commitment_id, description, unit FROM commitment_items
+      ORDER BY description, unit, id`),
+    db.prepare(`SELECT ii.commitment_item_id, ii.invoice_id, i.invoice_date, ii.quantity
+      FROM invoices i JOIN invoice_items ii ON ii.invoice_id = i.id
+      WHERE i.invoice_date >= ? AND i.invoice_date <= ?`)
+      .bind(period.startDate, period.endDate),
+  ]);
+  return buildConsumptionReport(
+    catalog.results.map((row) => ({
+      id: String(row.id), commitmentId: String(row.commitment_id),
+      description: String(row.description), unit: String(row.unit),
+    })),
+    entries.results.map((row) => ({
+      commitmentItemId: String(row.commitment_item_id), invoiceId: String(row.invoice_id),
+      invoiceDate: String(row.invoice_date), quantity: Number(row.quantity),
+    })),
+    period, today, firstInvoiceDate,
+  );
 }
 
 export async function createCommitment(

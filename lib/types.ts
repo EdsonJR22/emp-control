@@ -26,6 +26,37 @@ export type DashboardData = {
   commitments: DashboardCommitment[];
 };
 
+export type ConsumptionPeriod = {
+  startDate: string;
+  endDate: string;
+  days: number;
+};
+
+export type ConsumptionItem = {
+  key: string;
+  description: string;
+  unit: string;
+  totalQuantity: number;
+  monthlyAverage: number;
+  weeklyAverage: number;
+  invoiceCount: number;
+  commitmentCount: number;
+  lastInvoiceDate: string | null;
+};
+
+export type ConsumptionData = {
+  today: string;
+  firstInvoiceDate: string | null;
+  period: ConsumptionPeriod;
+  summary: {
+    itemCount: number;
+    consumedItemCount: number;
+    invoiceCount: number;
+    commitmentCount: number;
+  };
+  items: ConsumptionItem[];
+};
+
 export type CommitmentItemBalance = {
   id: string;
   lineNumber: number;

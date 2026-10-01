@@ -74,7 +74,7 @@ export function ArchivedCommitments() {
         <div>
           <span className="eyebrow">Organização</span>
           <h1>NEs arquivadas</h1>
-          <p>Empenhos fora da operação atual. Eles não entram na visão geral nem nas estatísticas.</p>
+          <p>Empenhos fora da operação atual e da visão geral. Suas notas fiscais continuam no histórico de consumo médio.</p>
         </div>
         <Link className="button button-secondary" href="/">
           <Icon name="arrow-left" /> Voltar à visão geral

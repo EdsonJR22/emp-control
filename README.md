@@ -15,8 +15,17 @@ notas fiscais, reforços de empenho e saldos por item.
 - reforço de empenho com histórico e atualização automática dos limites;
 - arquivamento e restauração de NEs;
 - banco persistente no Cloudflare D1;
+- consumo médio por item, semanal (7 dias) e mensal (30 dias), com período ajustável;
 - acesso protegido por usuário, senha e sessão segura;
 - interface responsiva e acessível.
+
+O relatório **Consumo médio** estima o consumo pelas quantidades entregues nas
+notas fiscais e suas datas. Pedidos em aberto não entram no cálculo. O histórico
+inclui NEs arquivadas e consolida itens de mesmo nome e unidade entre empenhos.
+Unidades diferentes permanecem separadas. As médias usam todos os dias do período,
+inclusive dias sem entrega: quantidade total ÷ dias × 7 ou × 30. A medida mensal
+é uma referência de 30 dias, não a soma de um mês do calendário. O período inicial
+é de 90 dias, podendo ser alterado na página.
 
 ## Tecnologias
 

@@ -31,6 +31,7 @@ export function AppShell({
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const inArchived = pathname.startsWith("/arquivadas");
+  const inConsumption = pathname.startsWith("/consumo-medio");
 
   if (pathname === "/login" || pathname === "/login/") {
     return (
@@ -72,6 +73,14 @@ export function AppShell({
           >
             <Icon name="dashboard" />
             Visão geral
+          </Link>
+          <Link
+            className={inConsumption ? "nav-link active" : "nav-link"}
+            href="/consumo-medio"
+            onClick={() => setMobileOpen(false)}
+          >
+            <Icon name="package" />
+            Consumo médio
           </Link>
           <Link
             className={inArchived ? "nav-link active" : "nav-link"}
